@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,21 +16,12 @@ class YoutubeDownloader extends StatefulWidget {
 
 class YoutubeDownloaderState extends State<YoutubeDownloader> {
   final TextEditingController _urlController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   bool _isLoading = false;
   String _message = '';
 
   Future<void> requestStoragePermission() async {
     if (Platform.isAndroid) {
-      // if (await Permission.storage.isDenied) {
-      //   var status = await Permission.storage.request();
-      //   if (!status.isGranted) {
-      //     setState(() {
-      //       _message = 'Permiso de almacenamiento denegado';
-      //     });
-      //     return;
-      //   }
-      // }
-
       // Si es Android 11 o superior, solicita el permiso de "gestión de almacenamiento"
       if (await Permission.manageExternalStorage.isDenied) {
         var manageStatus = await Permission.manageExternalStorage.request();
@@ -39,6 +32,22 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
           return;
         }
       }
+    }
+  }
+
+  Future<void> _launchYouTube() async {
+    const url = 'https://www.youtube.com';
+    final uri = Uri.parse(url);
+
+    // Usa launchUrl sin verificar canLaunchUrl
+    if (!await launchUrl(
+      uri,
+      mode: LaunchMode
+          .externalApplication, // Asegura que se abra en una aplicación externa (navegador)
+    )) {
+      setState(() {
+        _message = 'No se puede abrir YouTube';
+      });
     }
   }
 
@@ -56,8 +65,9 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
       var manifest = await yt.videos.streamsClient.getManifest(videoUrl);
       var streamInfo = manifest.muxed.bestQuality;
 
-      var dir = await getTemporaryDirectory();
-      var savePath = '${dir.path}/${video.title}.mp4';
+      // Use getExternalStorageDirectory to get the directory for saving
+      var dir = await getExternalStorageDirectory();
+      var savePath = path.join(dir!.path, '${video.title}.mp4');
 
       var stream = yt.videos.streamsClient.get(streamInfo);
       var file = File(savePath);
@@ -67,9 +77,17 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
       await output.flush();
       await output.close();
 
-      setState(() {
-        _message = 'Video descargado exitosamente.';
-      });
+      // Save the file to gallery
+      final result = await ImageGallerySaver.saveFile(savePath);
+      if (result['isSuccess']) {
+        setState(() {
+          _message = 'Video descargado y guardado en la galería.';
+        });
+      } else {
+        setState(() {
+          _message = 'Video descargado, pero no se pudo guardar en la galería.';
+        });
+      }
     } catch (e) {
       setState(() {
         _message = 'Error: $e';
@@ -144,6 +162,7 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
                 ),
                 const SizedBox(height: 15),
                 TextField(
+                  focusNode: _focusNode,
                   controller: _urlController,
                   decoration: InputDecoration(
                     labelText: 'URL de Video Youtube',
@@ -170,7 +189,10 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
                               backgroundColor: Colors.red,
                               foregroundColor: Colors.white,
                             ),
-                            onPressed: () => downloadVideo(_urlController.text),
+                            onPressed: () {
+                              FocusScope.of(context).unfocus();
+                              downloadVideo(_urlController.text);
+                            },
                             child: const Text(
                               'Descargar Video',
                               style: TextStyle(
@@ -183,10 +205,26 @@ class YoutubeDownloaderState extends State<YoutubeDownloader> {
                               backgroundColor: Colors.red,
                               foregroundColor: Colors.white,
                             ),
-                            onPressed: () => downloadAudioToInternalStorage(
-                                _urlController.text),
+                            onPressed: () {
+                              FocusScope.of(context).unfocus();
+                              downloadAudioToInternalStorage(
+                                _urlController.text);
+                            } ,
                             child: const Text(
                               'Descargar Audio',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _launchYouTube,
+                            child: const Text(
+                              'Abrir YouTube',
                               style: TextStyle(
                                   fontSize: 18, fontWeight: FontWeight.bold),
                             ),
